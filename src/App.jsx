@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { BrowserMultiFormatReader } from "@zxing/browser";
 import { supabase } from "./lib/supabase.js";
 import * as Data from "./lib/data.js";
 
@@ -234,7 +235,7 @@ export default function VoltApp() {
         {tab === "home" && <Home db={db} cur={cur} addDebt={addDebt} settleDebt={settleDebt} />}
         {tab === "scan" && <Scan db={db} cur={cur} recordSale={recordSale} addStock={addStock} saveNewProduct={saveNewProduct} />}
         {tab === "money" && <Money db={db} cur={cur} addTransaction={addTransaction} removeTransaction={removeTransaction} />}
-        {tab === "stock" && <Stock db={db} cur={cur} saveProduct={saveProduct} deleteProduct={removeProduct} adjustStock={adjustStock} />}
+        {tab === "stock" && <Stock db={db} cur={cur} saveProduct={saveProduct} deleteProduct={removeProduct} adjustStock={adjustStock} addStock={addStock} />}
       </div>
 
       <nav className="nav">
@@ -527,30 +528,34 @@ function Scan({ db, cur, recordSale, addStock, saveNewProduct }) {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const [flash, setFlash] = useState("");
-  const videoRef = useRef(null); const streamRef = useRef(null); const inputRef = useRef(null);
+  const videoRef = useRef(null); const inputRef = useRef(null);
+  const readerRef = useRef(null); const controlsRef = useRef(null);
 
   useEffect(() => () => stopCamera(), []);
-  const stopCamera = () => { if (streamRef.current) { streamRef.current.getTracks().forEach((t) => t.stop()); streamRef.current = null; } setScanning(false); };
+  const stopCamera = () => {
+    if (controlsRef.current) { controlsRef.current.stop(); controlsRef.current = null; }
+    setScanning(false);
+  };
 
   const startCamera = async () => {
     setScanError("");
-    if (!("BarcodeDetector" in window)) { setScanError("Camera scanning isn't supported in this browser — type the code, or use a USB scanner (it types for you)."); return; }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanError("Camera scanning isn't supported on this device — type the code, or use a USB scanner (it types for you).");
+      return;
+    }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      streamRef.current = stream;
-      if (videoRef.current) videoRef.current.srcObject = stream;
       setScanning(true);
-      const detector = new window.BarcodeDetector({ formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "qr_code"] });
-      const tick = async () => {
-        if (!streamRef.current || !videoRef.current) return;
-        try {
-          const codes = await detector.detect(videoRef.current);
-          if (codes.length > 0) { handleCode(codes[0].rawValue); stopCamera(); return; }
-        } catch (e) {}
-        if (streamRef.current) requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    } catch { setScanError("Couldn't open the camera. Check permissions, or type the code below."); }
+      if (!readerRef.current) readerRef.current = new BrowserMultiFormatReader();
+      const controls = await readerRef.current.decodeFromConstraints(
+        { video: { facingMode: "environment" } },
+        videoRef.current,
+        (result) => { if (result) { handleCode(result.getText()); stopCamera(); } }
+      );
+      controlsRef.current = controls;
+    } catch (e) {
+      setScanning(false);
+      setScanError("Couldn't open the camera. Check permissions, or type the code below.");
+    }
   };
 
   const handleCode = (raw) => {
@@ -786,12 +791,14 @@ function Money({ db, cur, addTransaction, removeTransaction }) {
 /* =========================================================
    STOCK (inventory)
 ========================================================= */
-function Stock({ db, cur, saveProduct, deleteProduct, adjustStock }) {
+function Stock({ db, cur, saveProduct, deleteProduct, adjustStock, addStock }) {
   const { products } = db;
   const [q, setQ] = useState("");
   const [menuFor, setMenuFor] = useState(null);
   const [editing, setEditing] = useState(null);
   const [adjusting, setAdjusting] = useState(null);
+  const [restocking, setRestocking] = useState(null);
+  const [restockQty, setRestockQty] = useState("1");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleteErr, setDeleteErr] = useState("");
   const [adjQty, setAdjQty] = useState("1");
@@ -859,6 +866,7 @@ function Stock({ db, cur, saveProduct, deleteProduct, adjustStock }) {
           <div className="shead">{menuFor.name}</div>
           <div className="rsub" style={{ marginBottom: 14 }}>{fmt(menuFor.price, cur)} · {menuFor.qty} in stock</div>
           <button className="opt" onClick={() => { setEditing({ ...menuFor }); setMenuFor(null); }}>✏️ Edit product <span className="optsub">change price, name, stock, anything</span></button>
+          <button className="opt" onClick={() => { setRestocking(menuFor); setRestockQty("1"); setMenuFor(null); }}>📦 Add stock <span className="optsub">received more from your supplier</span></button>
           <button className="opt" onClick={() => { setAdjusting(menuFor); setAdjQty("1"); setMenuFor(null); }}>📉 Remove stock <span className="optsub">damaged, lost, or returned items</span></button>
           <button className="opt danger" onClick={() => { setConfirmDelete(menuFor); setMenuFor(null); }}>🗑️ Delete product <span className="optsub">remove it completely</span></button>
           <button className="btn ghost full" onClick={() => setMenuFor(null)}>Cancel</button>
@@ -934,6 +942,26 @@ function Stock({ db, cur, saveProduct, deleteProduct, adjustStock }) {
               } catch (e) { console.error(e); }
             }}>Remove {adjQty || 0} from stock</button>
             <button className="btn ghost" onClick={() => setAdjusting(null)}>Cancel</button>
+          </div>
+        </Overlay>
+      )}
+
+      {restocking && (
+        <Overlay close={() => setRestocking(null)}>
+          <div className="shead">Add stock — {restocking.name}</div>
+          <div className="note">Currently {restocking.qty} in stock.</div>
+          <div className="fgrid two">
+            <label>How many arrived<input value={restockQty} onChange={(e) => setRestockQty(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" autoFocus /></label>
+          </div>
+          <div className="mrow">
+            <button className="btn" onClick={async () => {
+              const n = Number(restockQty); if (!n) return;
+              try {
+                await addStock(restocking, n);
+                setRestocking(null);
+              } catch (e) { console.error(e); }
+            }}>Add {restockQty || 0} to stock</button>
+            <button className="btn ghost" onClick={() => setRestocking(null)}>Cancel</button>
           </div>
         </Overlay>
       )}
