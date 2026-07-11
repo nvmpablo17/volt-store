@@ -1,0 +1,26 @@
+PASTE THIS INTO CLAUDE CODE AS YOUR FIRST MESSAGE
+(after opening it in your volt-store folder — fill in the two YOUR_... blanks first)
+
+---
+
+I'm building an inventory/sales/income web app for an electronics store.
+I'm a beginner, so explain what you're doing in simple terms as you go.
+
+In this folder you'll find:
+- volt-app.jsx — a complete working React prototype (design + all features). Keep this design EXACTLY: white background, plant green (#2F9E44) for positive things, red (#DC3D43) for warnings, Outfit font, the splash intro animation, the count-up money animations.
+- schema.sql — my database schema, ALREADY created and running in my Supabase project. Don't change the schema; build the app to match it.
+
+What I want you to build:
+1. A Vite + React app based on volt-app.jsx
+2. Replace window.storage with Supabase (tables: settings, products, transactions, debts, stock_adjustments — see schema.sql)
+3. Replace the PIN lock with real Supabase email/password auth (sign up + log in). Keep the splash animation before the login screen.
+4. Wire everything like the prototype: a sale deducts stock AND creates an income transaction; settling a debt creates a transaction; stock adjustments write to stock_adjustments.
+5. Make it mobile-friendly — it'll mostly be used on a phone.
+6. Put my Supabase credentials in a .env file (and make sure .env is in .gitignore):
+
+VITE_SUPABASE_URL=YOUR_PROJECT_URL_HERE
+VITE_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_KEY_HERE
+
+7. When it runs locally and works, help me push it to GitHub and deploy it on Vercel (I have accounts for both).
+
+Start by setting up the project and showing me it running locally, then we'll do Supabase wiring, then auth, then deploy — step by step, checking with me at each stage.
